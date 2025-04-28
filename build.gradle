@@ -1,19 +1,160 @@
+import javax.xml.parsers.DocumentBuilderFactory
+import org.xml.sax.SAXException
+
 plugins {
     id 'java'
+    id 'application'
 }
 
-group = 'org.example'
-version = '1.0-SNAPSHOT'
+group = 'vibixx'
+version = project.version
 
+def mainClassName = project.mainClass
+def javaVersion = project.javaVersion
+
+java {
+    sourceCompatibility = JavaVersion.toVersion(javaVersion)
+    targetCompatibility = JavaVersion.toVersion(javaVersion)
+}
+
+application {
+    mainClass = mainClassName
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src/main/java']
+        }
+        resources {
+            srcDirs = ['src/main/resources', 'src/main/webapp']
+        }
+    }
+    test {
+        java {
+            srcDirs = ['src/test/java']
+        }
+        resources {
+            srcDirs = ['src/test/resources']
+        }
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+                'Implementation-Title': project.name,
+                'Implementation-Version': project.version,
+                'Main-Class': mainClassName
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
+tasks.withType(Jar).configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.named('clean', Delete) {
+    group = 'build'
+    delete rootProject.buildDir
+}
+
+tasks.register('compile') {
+    group       = 'build'
+    dependsOn 'compileJava'
+}
+
+tasks.named('build') {
+    group = 'build'
+    dependsOn 'compile', 'jar'
+}
+
+tasks.named('test', Test) {
+    group = 'verification'
+    useJUnitPlatform()
+    reports {
+        junitXml.required.set(true)
+        html.required.set(true)
+    }
+}
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    testImplementation platform('org.junit:junit-bom:5.10.0')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation "org.junit.jupiter:junit-jupiter-api:${junitVersion}"
+    testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${junitVersion}"
+
+    compileOnly 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+    compileOnly 'jakarta.servlet:jakarta.servlet-api:5.0.0'
+
+    compileOnly 'jakarta.enterprise:jakarta.enterprise.cdi-api:4.0.1'
+    compileOnly 'jakarta.ejb:jakarta.ejb-api:4.0.1'
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0'
 }
 
-test {
-    useJUnitPlatform()
+tasks.register('xml') {
+    group = 'verification'
+
+    doLast {
+        def xmlFiles = fileTree(dir: 'src', include: '**/*.xml')
+        def factory = DocumentBuilderFactory.newInstance()
+
+        xmlFiles.each { File xmlFile ->
+            try {
+                factory.newDocumentBuilder().parse(xmlFile)
+                println "OK: ${xmlFile}"
+            } catch (SAXException e) {
+                throw new GradleException("Ошибка валидации XML: ${xmlFile} — ${e.message}")
+            }
+        }
+    }
+}
+
+tasks.register('report') {
+    group = 'verification'
+    dependsOn 'test'
+
+    doLast {
+        def fromDir = file("${buildDir}/test-results/test")
+
+        if (!fromDir.exists()) {
+            throw new GradleException("Отчеты найдены в ${fromDir.path}")
+        }
+
+
+        if (fromDir.list().length == 0) {
+            println "Нет новых отчетов"
+            return
+        }
+
+        def toDir = file("/home/serpentarie/vibixx-meow")
+
+        println "Добавлили отчеты в svn пупупу"
+        exec {
+            commandLine 'cp','-r', "${fromDir.path}/.", toDir.path
+        }
+        exec {
+            workingDir toDir.path
+            commandLine 'svn', 'add', '--force', '.'
+            ignoreExitValue = false
+        }
+
+
+        println "Закомитили в svn пупупу"
+        exec {
+            workingDir toDir.path
+            commandLine 'svn', 'commit', '-m', "Добавлены отчеты после успешного тестирования пупупу"
+            ignoreExitValue = false
+            standardOutput = System.out
+            errorOutput = System.err
+        }
+        println "Успешно пупупу"
+    }
 }
